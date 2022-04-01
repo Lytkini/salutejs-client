@@ -279,8 +279,6 @@ export const createAssistant = ({ getMeta, ...configuration }: VpsConfiguration 
     // обработка входящих команд, и событий аппа
     subscriptions.push(
         client.on('systemMessage', (systemMessage: SystemMessageDataType, originalMessage: OriginalMessageType) => {
-            console.log('systemMessage', systemMessage);
-
             if (originalMessage.messageName === 'ANSWER_TO_USER') {
                 const { activate_app_info, items, app_info: mesAppInfo, character } = systemMessage;
 

@@ -159,8 +159,6 @@ export const createClient = (
         });
 
     const off = protocol.on('incoming', (message: OriginalMessageType) => {
-        console.log('protocol.on incoming', message);
-
         if (message.voice) {
             emit('voice', message.voice.data || new Uint8Array(), message);
         }
