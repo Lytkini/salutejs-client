@@ -7,6 +7,53 @@ import { createVoiceListener } from './listener/voiceListener';
 import { createVoicePlayer } from './player/voicePlayer';
 import { resolveAudioContext, isAudioSupported } from './audioContext';
 
+const createVoiceSettings = () => {
+    let settings = { disableDubbing: false, disableListening: false };
+    let storedSettings: Partial<typeof settings> | null = null;
+
+    /** Обновляет настройки (переданными, или ранее сохранёнными методом `store`).
+     * Возвращает флаг: `true` === обновили. */
+    const update = (nextSettings?: Partial<typeof settings>) => {
+        const calculatedSettings = {
+            ...settings,
+            ...(storedSettings || {}),
+            ...(nextSettings || {}),
+        };
+        let isUpdated = false;
+
+        if (
+            calculatedSettings.disableDubbing !== settings.disableDubbing ||
+            calculatedSettings.disableListening !== settings.disableListening
+        ) {
+            settings = calculatedSettings;
+            isUpdated = true;
+        }
+
+        storedSettings = null;
+
+        return isUpdated;
+    };
+
+    /** Запоминает переданные настройки до ближайшего вызова `update`. */
+    const store = (nextSettings: Partial<typeof settings>) => {
+        storedSettings = {
+            ...(storedSettings || {}),
+            ...nextSettings,
+        };
+    };
+
+    return {
+        update,
+        store,
+        get disableDubbing() {
+            return settings.disableDubbing;
+        },
+        get disableListening() {
+            return settings.disableListening;
+        },
+    };
+};
+
 export const createVoice = (
     client: ReturnType<typeof createClient>,
     emit: (event: {
@@ -23,14 +70,18 @@ export const createVoice = (
     const speechRecognizer = createSpeechRecognizer(listener);
     const subscriptions: Array<() => void> = [];
 
-    const settings = {
-        disableDubbing: false,
-        disableListening: false,
-    };
+    /** Запросы на обновление настроек, приходящие в момент слушания, запоминаются, но будут применены только при
+     * прекращении говорения (или при прекращении слушания, если говорение отключено). */
+    const settings = createVoiceSettings();
 
     let isPlaying = false; // проигрывается/не проигрывается озвучка
     let autolistenMesId: string | null = null; // id сообщения, после проигрывания которого, нужно активировать слушание
-    let wasDisabledDubbing = false; // состояние озвучки на момент включения слушания
+
+    listener.on('status', (status) => {
+        if (status === 'stopped' && settings.disableDubbing) {
+            settings.update();
+        }
+    });
 
     /** останавливает слушание голоса, возвращает true - если слушание было активно */
     const stopListening = (): boolean => {
@@ -78,7 +129,6 @@ export const createVoice = (
 
         // повторные вызовы не пройдут, пока пользователь не разрешит/запретит аудио
         if (listener.status === 'stopped') {
-            wasDisabledDubbing = settings.disableDubbing;
             return client.createVoiceStream(({ sendVoice, messageId, onMessage }) => {
                 begin?.forEach((chunk) => sendVoice(new Uint8Array(chunk), false));
 
@@ -109,7 +159,6 @@ export const createVoice = (
 
         // повторные вызовы не пройдут, пока пользователь не разрешит/запретит аудио
         if (listener.status === 'stopped') {
-            wasDisabledDubbing = settings.disableDubbing;
             client.createVoiceStream(({ sendVoice, messageId, onMessage }) =>
                 musicRecognizer.start({
                     sendVoice,
@@ -138,6 +187,7 @@ export const createVoice = (
             subscriptions.push(
                 voicePlayer.on('end', (mesId: string) => {
                     isPlaying = false;
+                    settings.update();
                     emit({ emotion: 'idle' });
 
                     if (mesId === autolistenMesId) {
@@ -197,7 +247,7 @@ export const createVoice = (
                 /// если озвучка включена - сохраняем mesId чтобы включить слушание после озвучки
                 /// если озвучка выключена - включаем слушание сразу
 
-                if (!wasDisabledDubbing) {
+                if (!settings.disableDubbing) {
                     autolistenMesId = originalMessage.messageId.toString();
                 } else {
                     listen();
@@ -212,27 +262,20 @@ export const createVoice = (
             voicePlayer?.setActive(false);
             subscriptions.splice(0, subscriptions.length).map((unsubscribe) => unsubscribe());
         },
-        change: (newSettings: { disableDubbing?: boolean; disableListening?: boolean }) => {
-            const { disableDubbing, disableListening } = newSettings;
+        change: (nextSettings: Partial<Pick<typeof settings, 'disableDubbing' | 'disableListening'>>) => {
+            const { disableDubbing, disableListening } = nextSettings;
 
-            /// ниже важен порядок обработки флагов слушания и озвучки
-            /// сначала слушание, потом озвучка
+            /// Важен порядок обработки флагов слушания и озвучки.
+            /// Сначала слушание, потом озвучка
+            disableListening && stopListening();
+            settings.disableDubbing !== disableDubbing && voicePlayer?.setActive(!disableDubbing);
 
-            // вкл/выкл фичи листенинга
-            if (typeof disableListening !== 'undefined' && settings.disableListening !== disableListening) {
-                settings.disableListening = disableListening;
-                if (disableListening === true) {
-                    stopListening();
-                }
+            if (listener.status === 'listen') {
+                settings.store(nextSettings);
+                return;
             }
 
-            // вкл/выкл фичи озвучки
-            if (typeof disableDubbing !== 'undefined' && settings.disableDubbing !== disableDubbing) {
-                settings.disableDubbing = disableDubbing;
-                voicePlayer?.setActive(!disableDubbing);
-            }
-
-            Object.assign(settings, newSettings);
+            settings.update(nextSettings);
         },
         listen,
         shazam,
