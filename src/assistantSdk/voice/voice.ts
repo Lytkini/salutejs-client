@@ -9,42 +9,75 @@ import { resolveAudioContext, isAudioSupported } from './audioContext';
 
 const createVoiceSettings = () => {
     let settings = { disableDubbing: false, disableListening: false };
-    let storedSettings: Partial<typeof settings> | null = null;
+    let scheduledSettings: Partial<typeof settings> | null = null;
 
-    /** Обновляет настройки (переданными, или ранее сохранёнными методом `store`).
+    /** Применяет переданные настройки (или ранее запланированные, если сейчас ничего не передали).
+     * Если установить флаг `applyNow` в `false`, то переданные настройки запланируются для
+     * следующего вызова без настроек.
      * Возвращает флаг: `true` === обновили. */
-    const update = (nextSettings?: Partial<typeof settings>) => {
-        const calculatedSettings = {
-            ...settings,
-            ...(storedSettings || {}),
-            ...(nextSettings || {}),
-        };
-        let isUpdated = false;
+    const change = (params?: { nextSettings?: Partial<typeof settings> | null; applyNow?: boolean }) => {
+        const { nextSettings = null, applyNow = true } = params || {};
 
-        if (
-            calculatedSettings.disableDubbing !== settings.disableDubbing ||
-            calculatedSettings.disableListening !== settings.disableListening
-        ) {
-            settings = calculatedSettings;
-            isUpdated = true;
+        if (applyNow) {
+            const calculatedSettings = {
+                ...settings,
+                ...(scheduledSettings || {}),
+                ...(nextSettings || {}),
+            };
+            let isUpdated = false;
+
+            if (
+                calculatedSettings.disableDubbing !== settings.disableDubbing ||
+                calculatedSettings.disableListening !== settings.disableListening
+            ) {
+                settings = calculatedSettings;
+                isUpdated = true;
+            }
+
+            scheduledSettings = null;
+
+            return isUpdated;
         }
 
-        storedSettings = null;
+        scheduledSettings = {
+            ...(scheduledSettings || {}),
+            ...(nextSettings || {}),
+        };
 
-        return isUpdated;
+        return false;
     };
 
-    /** Запоминает переданные настройки до ближайшего вызова `update`. */
-    const store = (nextSettings: Partial<typeof settings>) => {
-        storedSettings = {
-            ...(storedSettings || {}),
-            ...nextSettings,
-        };
+    /** Применяет ранее запланированные настройки в момент завершения озвучки
+     * (или при прекращении слушания, если озвучка отключена). */
+    const startAutoApplying = ({
+        voicePlayer,
+        listener,
+    }: {
+        voicePlayer?: ReturnType<typeof createVoicePlayer>;
+        listener: ReturnType<typeof createVoiceListener>;
+    }) => {
+        const subscribers: Array<() => void> = [];
+
+        if (voicePlayer) {
+            subscribers.push(voicePlayer.on('end', () => change()));
+        }
+
+        subscribers.push(
+            listener.on('status', (status) => {
+                const isDubbingSupported = voicePlayer && !settings.disableDubbing;
+
+                if (status === 'stopped' && !isDubbingSupported) {
+                    change();
+                }
+            }),
+        );
+
+        return () => subscribers.forEach((unsubscribe) => unsubscribe());
     };
 
     return {
-        update,
-        store,
+        change,
+        startAutoApplying,
         get disableDubbing() {
             return settings.disableDubbing;
         },
@@ -69,19 +102,10 @@ export const createVoice = (
     const musicRecognizer = createMusicRecognizer(listener);
     const speechRecognizer = createSpeechRecognizer(listener);
     const subscriptions: Array<() => void> = [];
-
-    /** Запросы на обновление настроек, приходящие в момент слушания, запоминаются, но будут применены только при
-     * прекращении говорения (или при прекращении слушания, если говорение отключено). */
     const settings = createVoiceSettings();
 
     let isPlaying = false; // проигрывается/не проигрывается озвучка
     let autolistenMesId: string | null = null; // id сообщения, после проигрывания которого, нужно активировать слушание
-
-    listener.on('status', (status) => {
-        if (status === 'stopped' && settings.disableDubbing) {
-            settings.update();
-        }
-    });
 
     /** останавливает слушание голоса, возвращает true - если слушание было активно */
     const stopListening = (): boolean => {
@@ -187,7 +211,6 @@ export const createVoice = (
             subscriptions.push(
                 voicePlayer.on('end', (mesId: string) => {
                     isPlaying = false;
-                    settings.update();
                     emit({ emotion: 'idle' });
 
                     if (mesId === autolistenMesId) {
@@ -196,9 +219,15 @@ export const createVoice = (
                 }),
             );
 
+            // запуск автоматического применения настроек
+            subscriptions.push(settings.startAutoApplying({ voicePlayer, listener }));
+
             // оповещаем о готовности к воспроизведению звука
             onReady && onReady();
         });
+    } else {
+        // запуск автоматического применения настроек (в случае, если озвучка не доступна)
+        subscriptions.push(settings.startAutoApplying({ listener }));
     }
 
     // обработка входящей озвучки
@@ -271,11 +300,11 @@ export const createVoice = (
             settings.disableDubbing !== disableDubbing && voicePlayer?.setActive(!disableDubbing);
 
             if (listener.status === 'listen') {
-                settings.store(nextSettings);
+                settings.change({ nextSettings, applyNow: false });
                 return;
             }
 
-            settings.update(nextSettings);
+            settings.change({ nextSettings });
         },
         listen,
         shazam,
