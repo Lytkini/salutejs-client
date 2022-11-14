@@ -88,27 +88,13 @@ export const createClient = (
             last: boolean,
             params?: { meta?: Record<string, string> },
         ) => void,
-        legacyMeta = false,
     ) => {
         const meta = provideMeta ? await provideMeta() : undefined;
 
         if (typeof meta !== 'undefined') {
-            if (legacyMeta) {
-                sendSystemMessage(
-                    {
-                        data: { meta },
-                        messageName: '',
-                    },
-                    false,
-                );
-
-                return;
-            }
-
             sendSystemMessage(
                 {
-                    // eslint-disable-next-line @typescript-eslint/camelcase
-                    data: { app_info: meta.current_app.app_info },
+                    data: {},
                     messageName: '',
                 },
                 false,
@@ -191,7 +177,7 @@ export const createClient = (
                 onMessage: (cb: (message: OriginalMessageType) => void) => protocol.on('incoming', cb),
             });
 
-            sendMeta(sendSystemMessage, true);
+            sendMeta(sendSystemMessage);
         });
 
     const off = protocol.on('incoming', (message: OriginalMessageType) => {
