@@ -3,6 +3,7 @@ import { SystemMessageDataType, OriginalMessageType, MessageNames, AppInfo, Hist
 import { GetHistoryResponse } from '../../proto';
 
 import { BatchableMethods, createProtocol } from './protocol';
+import { SendSystemMessageData } from './methods';
 
 export interface ClientEvents {
     voice: (voice: Uint8Array, original: OriginalMessageType) => void;
@@ -56,10 +57,10 @@ export const createClient = (
             {
                 data,
                 messageName,
+                meta: convertFieldValuesToString(meta || {}),
             },
             true,
             messageId,
-            { meta: convertFieldValuesToString(meta || {}) },
         );
 
         return messageId;
@@ -82,13 +83,7 @@ export const createClient = (
     };
 
     /** вызывает sendSystemMessage, куда подкладывает мету */
-    const sendMeta = async (
-        sendSystemMessage: (
-            data: { data: Record<string, unknown>; messageName?: string },
-            last: boolean,
-            params?: { meta?: Record<string, string> },
-        ) => void,
-    ) => {
+    const sendMeta = async (sendSystemMessage: (data: SendSystemMessageData, last: boolean) => void) => {
         const meta = provideMeta ? await provideMeta() : undefined;
 
         if (typeof meta !== 'undefined') {
@@ -96,9 +91,9 @@ export const createClient = (
                 {
                     data: {},
                     messageName: '',
+                    meta: convertFieldValuesToString(meta || {}),
                 },
                 false,
-                { meta: convertFieldValuesToString(meta || {}) },
             );
         }
     };
@@ -112,16 +107,18 @@ export const createClient = (
         const messageId = protocol.getMessageId();
 
         // мету и server_action отправляем в одном systemMessage
-        await sendMeta((data, _, params) => {
+        await sendMeta((data) => {
+            const { meta, ...systemData } = data;
+
             protocol.sendSystemMessage(
                 {
                     // eslint-disable-next-line @typescript-eslint/camelcase
-                    data: { ...data, app_info: appInfo, server_action: serverAction },
+                    data: { ...systemData, app_info: appInfo, server_action: serverAction },
                     messageName: messageName || 'SERVER_ACTION',
+                    meta,
                 },
                 true,
                 messageId,
-                params,
             );
         });
 

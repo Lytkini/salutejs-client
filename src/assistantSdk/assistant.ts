@@ -271,7 +271,7 @@ export const createAssistant = ({ getMeta, ...configuration }: VpsConfiguration 
         } = await getAnswerForRequestPermissions(requestMessageId, appInfo, items);
         const meta = await metaProvider();
 
-        client.sendData(data, 'SERVER_ACTION', { ...meta, ...props });
+        client.sendData({ ...data }, 'SERVER_ACTION', { ...meta, ...props });
     };
 
     subscriptions.push(protocol.on('ready', () => emit('vps', { type: 'ready' })));

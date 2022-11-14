@@ -18,6 +18,12 @@ import {
 } from '../../proto';
 import { VpsVersion, GetHistoryRequestClient, GetHistoryRequestProto } from '../../typings';
 
+export type SendSystemMessageData = {
+    meta?: { [k: string]: string };
+    data: Record<string, unknown>;
+    messageName?: string;
+};
+
 export type BatchableMethods = {
     sendText: (
         data: string,
@@ -42,14 +48,7 @@ export type BatchableMethods = {
             meta?: { [k: string]: string };
         },
     ) => void;
-    sendVoice: (
-        data: Uint8Array,
-        last: boolean,
-        messageName?: string,
-        params?: {
-            meta?: { [k: string]: string };
-        },
-    ) => void;
+    sendVoice: (data: Uint8Array, last: boolean, messageName?: string, meta?: SendSystemMessageData['meta']) => void;
     sendSettings: (data: ISettings, last?: boolean, messageId?: number) => void;
     messageId: number;
 };
@@ -105,13 +104,13 @@ export const createClientMethods = ({
         data: IInitialSettings,
         last = true,
         messageId = getMessageId(),
-        params: { meta?: { [k: string]: string } } = {},
+        meta?: SendSystemMessageData['meta'],
     ) => {
         return send({
             payload: {
                 initialSettings: InitialSettings.create(data),
                 last: last ? 1 : -1,
-                ...params,
+                meta,
             },
             messageId,
         });
@@ -212,12 +211,9 @@ export const createClientMethods = ({
     };
 
     const sendSystemMessage = (
-        { data, messageName: mesName = '' }: { data: Record<string, unknown>; messageName?: string },
+        { data, messageName: mesName = '', meta }: SendSystemMessageData,
         last = true,
         messageId = getMessageId(),
-        params: {
-            meta?: { [k: string]: string };
-        } = {},
     ) => {
         send({
             payload: {
@@ -226,7 +222,7 @@ export const createClientMethods = ({
                 }),
                 messageName: mesName,
                 last: last ? 1 : -1,
-                ...params,
+                meta,
             },
             messageId,
         });
@@ -237,9 +233,7 @@ export const createClientMethods = ({
         last = true,
         messageId = getMessageId(),
         mesName?: string,
-        params: {
-            meta?: { [k: string]: string };
-        } = {},
+        meta?: SendSystemMessageData['meta'],
     ) => {
         return send({
             payload: {
@@ -248,7 +242,7 @@ export const createClientMethods = ({
                 }),
                 messageName: mesName,
                 last: last ? 1 : -1,
-                ...params,
+                meta,
             },
             messageId,
         });
@@ -257,6 +251,7 @@ export const createClientMethods = ({
     const batch = <T>(cb: (methods: BatchableMethods) => T): T => {
         const batchingMessageId = getMessageId();
         let lastMessageSent = false;
+
         const checkLastMessageStatus = (last?: boolean) => {
             if (lastMessageSent) {
                 if (last) {
@@ -275,26 +270,21 @@ export const createClientMethods = ({
         };
 
         const upgradedSendSystemMessage: (
-            data: { data: Record<string, unknown>; messageName?: string },
+            data: SendSystemMessageData,
             last: boolean,
-            params?: {
-                meta?: { [k: string]: string };
-            },
-        ) => ReturnType<typeof sendSystemMessage> = (data, last, params) => {
+        ) => ReturnType<typeof sendSystemMessage> = (data, last) => {
             checkLastMessageStatus(last);
-            return sendSystemMessage(data, last, batchingMessageId, params);
+            return sendSystemMessage(data, last, batchingMessageId);
         };
 
         const upgradedSendVoice: (
             data: Uint8Array,
             last: boolean,
             messageName?: string,
-            params?: {
-                meta?: { [k: string]: string };
-            },
-        ) => ReturnType<typeof sendVoice> = (data, last, mesName, params) => {
+            meta?: SendSystemMessageData['meta'],
+        ) => ReturnType<typeof sendVoice> = (data, last, mesName, meta) => {
             checkLastMessageStatus(last);
-            return sendVoice(data, last, batchingMessageId, mesName, params);
+            return sendVoice(data, last, batchingMessageId, mesName, meta);
         };
 
         const upgradedSendSettings: (

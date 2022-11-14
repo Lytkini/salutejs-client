@@ -44,11 +44,12 @@ describe('Проверяем', () => {
                     action = message;
                 }
 
-                if (message.systemMessage && message.systemMessage.data !== '{}') {
+                if (message.systemMessage) {
                     context = message;
                 }
 
                 if (action && context && !doneCalled) {
+                    // eslint-disable-next-line @typescript-eslint/camelcase
                     const current_app = JSON.parse(context.meta.current_app);
                     doneCalled = true;
 

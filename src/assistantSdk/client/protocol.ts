@@ -278,7 +278,7 @@ export const createProtocol = (transport: Transport, { logger, getToken, ...para
                     },
                     true,
                     initMessageId,
-                    { meta },
+                    meta,
                 );
             }
 
