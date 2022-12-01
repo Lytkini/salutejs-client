@@ -86,6 +86,9 @@ if (typeof window !== 'undefined' && inIframe()) {
         sendText(message: string) {
             postMessage({ type: 'sendText', payload: message });
         },
+        setHeaderButtons(headerButtons: string) {
+            postMessage({ type: 'setHeaderButtons', payload: headerButtons });
+        },
     };
 
     window.addEventListener('message', (e) => {
